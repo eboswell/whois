@@ -123,8 +123,9 @@ class NICClient:
 
     ip_whois: list[str] = [LNICHOST, RNICHOST, PNICHOST, BNICHOST, PANDIHOST]
 
-    def __init__(self):
+    def __init__(self, prefer_ipv6: bool = False):
         self.use_qnichost: bool = False
+        self.prefer_ipv6 = prefer_ipv6
 
     @staticmethod
     def findwhois_server(buf: str, hostname: str, query: str) -> Optional[str]:
@@ -150,40 +151,69 @@ class NICClient:
         return nhost
 
     @staticmethod
-    def get_socket():
-        if "SOCKS" in os.environ:
-            try:
-                import socks
-            except ImportError as e:
-                logger.error(
-                    "You need to install the Python socks module. Install PIP "
-                    "(https://bootstrap.pypa.io/get-pip.py) and then 'pip install PySocks'"
-                )
-                raise e
-            socks_user, socks_password = None, None
-            if "@" in os.environ["SOCKS"]:
-                creds, proxy = os.environ["SOCKS"].split("@")
-                socks_user, socks_password = creds.split(":")
-            else:
-                proxy = os.environ["SOCKS"]
-            socksproxy, port = proxy.split(":")
-            socks_proto = socket.AF_INET
-            if socket.AF_INET6 in [
-                sock[0] for sock in socket.getaddrinfo(socksproxy, port)
-            ]:
-                socks_proto = socket.AF_INET6
-            s = socks.socksocket(socks_proto)
-            s.set_proxy(
-                socks.SOCKS5, socksproxy, int(port), True, socks_user, socks_password
+    def get_socks_socket():
+        try:
+            import socks
+        except ImportError as e:
+            logger.error(
+                "You need to install the Python socks module. Install PIP "
+                "(https://bootstrap.pypa.io/get-pip.py) and then 'pip install PySocks'"
             )
+            raise e
+        socks_user, socks_password = None, None
+        if "@" in os.environ["SOCKS"]:
+            creds, proxy = os.environ["SOCKS"].split("@")
+            socks_user, socks_password = creds.split(":")
         else:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            proxy = os.environ["SOCKS"]
+        socksproxy, port = proxy.split(":")
+        socks_proto = socket.AF_INET
+        if socket.AF_INET6 in [
+            sock[0] for sock in socket.getaddrinfo(socksproxy, port)
+        ]:
+            socks_proto = socket.AF_INET6
+        s = socks.socksocket(socks_proto)
+        s.set_proxy(
+            socks.SOCKS5, socksproxy, int(port), True, socks_user, socks_password
+        )
         return s
 
+    def _connect(self, hostname: str, timeout: int) -> socket.socket:
+        """Resolve WHOIS IP address and connect to its TCP 43 port."""
+        port = 43
+
+        if "SOCKS" in os.environ:
+            s = NICClient.get_socks_socket()
+            s.settimeout(timeout)
+            s.connect((hostname, port))
+            return s
+
+        # Resolve all IP addresses for the WHOIS server
+        addr_infos = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+
+        if self.prefer_ipv6:
+            # Sort by family to prioritize AF_INET6 (10) over AF_INET (2)
+            addr_infos.sort(key=lambda x: x[0], reverse=True)
+
+        last_err = None
+        # Attempt to connect to each related IP address until one works
+        for family, sock_type, proto, __, sockaddr in addr_infos:
+            s = None
+            try:
+                s = socket.socket(family, sock_type, proto)
+                s.settimeout(timeout)
+                s.connect(sockaddr)
+                return s
+            except socket.error as e:
+                last_err = e
+                if s:
+                    s.close()
+                continue
+
+        raise last_err or socket.error(f"Could not connect to {hostname}")
+
     def findwhois_iana(self, tld: str, timeout: int = 10) -> Optional[str]:
-        s = self.get_socket()
-        s.settimeout(timeout)
-        s.connect(("whois.iana.org", 43))
+        s = self._connect("whois.iana.org", timeout)
         s.send(bytes(tld, "utf-8") + b"\r\n")
         response = b""
         while True:
@@ -219,11 +249,10 @@ class NICClient:
         a string containing the error.
         """
         response = b""
-        s = self.get_socket()
-        s.settimeout(timeout)
+        s = None
         try:  # socket.connect in a try, in order to allow things like looping whois on different domains without
             # stopping on timeouts: https://stackoverflow.com/questions/25447803/python-socket-connection-exception
-            s.connect((hostname, 43))
+            s = self._connect(hostname, timeout)
             if hostname == NICClient.DENICHOST:
                 query_bytes = "-T dn,ace -C UTF-8 " + query
             elif hostname == NICClient.DK_HOST:
@@ -261,7 +290,8 @@ class NICClient:
             else:
                 raise e
         finally:
-            s.close()
+            if s:
+                s.close()
         return response_str
 
     def choose_server(self, domain: str, timeout: int = 10) -> Optional[str]:
@@ -568,6 +598,13 @@ def parse_command_line(argv: list[str]) -> tuple[optparse.Values, list[str]]:
         help="Lookup using specified tcp port",
     )
     parser.add_option(
+        "--prefer-ipv6",
+        action="store_true",
+        dest="prefer_ipv6",
+        default=False,
+        help="Prioritize IPv6 resolution for WHOIS servers",
+    )
+    parser.add_option(
         "-Q",
         "--quick",
         action="store_true",
@@ -621,8 +658,8 @@ def parse_command_line(argv: list[str]) -> tuple[optparse.Values, list[str]]:
 
 if __name__ == "__main__":
     flags = 0
-    nic_client = NICClient()
     options, args = parse_command_line(sys.argv)
+    nic_client = NICClient(prefer_ipv6=options.prefer_ipv6)
     if options.b_quicklookup:
         flags = flags | NICClient.WHOIS_QUICK
     logger.debug(nic_client.whois_lookup(options.__dict__, args[1], flags))
