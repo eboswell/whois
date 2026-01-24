@@ -5,7 +5,7 @@
 #
 # This module is part of python-whois and is released under
 # the MIT license: http://www.opensource.org/licenses/mit-license.php
-
+from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone, timedelta
