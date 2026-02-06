@@ -245,7 +245,17 @@ class WhoisEntry(dict):
         elif domain.endswith(".uk"):
             return WhoisUk(domain, text)
         elif domain.endswith(".fr"):
-            return WhoisFr(domain, text)
+            return WhoisAfnic(domain, text)
+        elif domain.endswith(".re"):
+            return WhoisAfnic(domain, text)
+        elif domain.endswith(".pm"):
+            return WhoisAfnic(domain, text)
+        elif domain.endswith(".tf"):
+            return WhoisAfnic(domain, text)
+        elif domain.endswith(".wf"):
+            return WhoisAfnic(domain, text)
+        elif domain.endswith(".yt"):
+            return WhoisAfnic(domain, text)
         elif domain.endswith(".nl"):
             return WhoisNl(domain, text)
         elif domain.endswith(".lt"):
@@ -958,8 +968,8 @@ class WhoisUk(WhoisEntry):
             WhoisEntry.__init__(self, domain, text, self.regex)
 
 
-class WhoisFr(WhoisEntry):
-    """Whois parser for .fr domains"""
+class WhoisAfnic(WhoisEntry):
+    """Whois parser for AFNIC domains (.fr, .re, .pm, .tf, .wf, .yt)"""
 
     regex: dict[str, str] = {
         "domain_name": r"domain: *(.+)",
@@ -970,6 +980,19 @@ class WhoisFr(WhoisEntry):
         "status": r"status: *(.+)",  # list of statuses
         "emails": EMAIL_REGEX,  # list of email addresses
         "updated_date": r"last-update: *(.+)",
+        "holder_c": r"holder-c: *(.+)",
+        "admin_c": r"admin-c: *(.+)",
+        "tech_c": r"tech-c: *(.+)",
+    }
+
+    # AFNIC field names to standard WhoisEntry field suffixes
+    _contact_field_mapping = {
+        "contact": "name",
+        "type": "type",
+        "address": "address",
+        "country": "country",
+        "phone": "phone",
+        "e-mail": "email",
     }
 
     def __init__(self, domain: str, text: str):
@@ -977,6 +1000,60 @@ class WhoisFr(WhoisEntry):
             raise WhoisDomainNotFoundError(text)
         else:
             WhoisEntry.__init__(self, domain, text, self.regex)
+            self._resolve_contacts(text)
+
+    def _resolve_contacts(self, text: str) -> None:
+        """Resolve AFNIC handle references (holder-c, admin-c, tech-c) to contact fields."""
+        handle_to_prefix = [
+            (self.pop("holder_c", None), "registrant"),
+            (self.pop("admin_c", None), "admin"),
+            (self.pop("tech_c", None), "tech"),
+        ]
+
+        contact_blocks = self._extract_contact_blocks(text)
+
+        for handle, prefix in handle_to_prefix:
+            if handle and handle in contact_blocks:
+                for afnic_field, suffix in self._contact_field_mapping.items():
+                    value = contact_blocks[handle].get(afnic_field)
+                    if value is not None:
+                        self[f"{prefix}_{suffix}"] = value
+
+    @staticmethod
+    def _extract_contact_blocks(text: str) -> dict[str, dict[str, Any]]:
+        """Parse all nic-hdl contact blocks from AFNIC whois text."""
+        contacts: dict[str, dict[str, Any]] = {}
+
+        for block in re.split(r"\n\s*\n", text):
+            hdl_match = re.search(r"^nic-hdl:\s*(.+)$", block, re.M | re.I)
+            if not hdl_match:
+                continue
+
+            handle = hdl_match.group(1).strip()
+            data: dict[str, Any] = {}
+
+            for line in block.splitlines():
+                if ":" not in line:
+                    continue
+                field, value = line.split(":", 1)
+                field = field.strip().lower()
+                value = value.strip()
+                if not value:
+                    continue
+
+                if field == "address":
+                    data.setdefault("address", [])
+                    data["address"].append(value)
+                elif field not in data:
+                    data[field] = value
+
+            # Join multi-line addresses
+            if "address" in data:
+                data["address"] = "\n".join(data["address"])
+
+            contacts[handle] = data
+
+        return contacts
 
 
 class WhoisFi(WhoisEntry):
