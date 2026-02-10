@@ -782,7 +782,62 @@ compilation, repackaging, dissemination or other use of this Data is prohibited.
                              'ns1.huaweicloud-dns.org']
         }
         self._parse_and_compare("icp.cm", data, expected_results)
-        
+
+    def test_fr_parse(self):
+        sample_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "samples", "whois", "google.fr"
+        )
+        with open(sample_path, encoding="utf-8") as f:
+            data = f.read()
+
+        expected_results = {
+            "domain_name": "google.fr",
+            "registrar": "MARKMONITOR Inc.",
+            "creation_date": datetime.datetime(2000, 7, 26, 22, 0, tzinfo=utc),
+            "expiration_date": datetime.datetime(2026, 12, 30, 17, 16, 48, tzinfo=utc),
+            "updated_date": datetime.datetime(2025, 12, 3, 10, 12, 0, 351952, tzinfo=utc),
+            "name_servers": [
+                "ns1.google.com",
+                "ns2.google.com",
+                "ns3.google.com",
+                "ns4.google.com",
+            ],
+            "status": [
+                "ACTIVE",
+                "serverUpdateProhibited",
+                "serverTransferProhibited",
+                "serverDeleteProhibited",
+                "serverRecoverProhibited",
+                "associated",
+                "not identified",
+                "ok",
+            ],
+            "emails": [
+                "registry.admin@markmonitor.com",
+                "dns-admin@google.com",
+                "ccops@markmonitor.com",
+            ],
+            "registrant_name": "Google Ireland Holdings Unlimited Company",
+            "registrant_address": "Google Ireland Holdings Unlimited Company\n70 Sir John Rogerson's Quay\n2 Dublin",
+            "registrant_country": "IE",
+            "registrant_phone": "+353.14361000",
+            "registrant_email": "dns-admin@google.com",
+            "registrant_type": "ORGANIZATION",
+            "admin_name": "Google Ireland Holdings Unlimited Company",
+            "admin_address": "70 Sir John Rogerson's Quay\n2 Dublin",
+            "admin_country": "IE",
+            "admin_phone": "+353.14361000",
+            "admin_email": "dns-admin@google.com",
+            "admin_type": "ORGANIZATION",
+            "tech_name": "MarkMonitor Inc.",
+            "tech_address": "2150 S. Bonito Way, Suite 150\n83642 Meridian",
+            "tech_country": "US",
+            "tech_phone": "+1.2083895740",
+            "tech_email": "ccops@markmonitor.com",
+            "tech_type": "ORGANIZATION",
+        }
+        self._parse_and_compare("google.fr", data, expected_results)
+
 
 if __name__ == "__main__":
     unittest.main()
