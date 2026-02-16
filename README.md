@@ -1,3 +1,8 @@
+# MODIFICATION OF PYTHON WHOIS LIBRARY, FOR MY DNS RESEARCH PROJECTS
+
+Parser.py has been extended to work with the domains in my dataset.
+
+
 # Goal
 
 - Create a simple importable Python module which will produce parsed
